@@ -1,0 +1,17 @@
+# Gradle wrapper JAR (downloaded at build time)
+gradle/wrapper/gradle-wrapper.jar
+
+# Android
+.gradle/
+build/
+.idea/
+*.apk
+*.aab
+*.iml
+local.properties
+
+# IDE
+.DS_Store
+*.swp
+*.swo
+*~
