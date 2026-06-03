@@ -1,7 +1,6 @@
 package com.example.macapk
 
 import android.os.Bundle
-import androidx.appcompat.app.AppCompatActivity
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
