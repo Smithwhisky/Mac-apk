@@ -33,16 +33,15 @@ class ScannerViewModel(private val repository: ScannerRepository) : ViewModel() 
 
         scanJob = viewModelScope.launch(Dispatchers.IO) {
             try {
-                // 1. Discover valid portals endpoints very fast
                 scanProgress("Checking active portal endpoints...")
                 val checkedUrl = serverUrl.value.trim()
                 val validPortals = mutableListOf<String>()
                 
-                // Scan paths in parallel
+                // فحص المسارات بالتوازي باستدعاء الدالة الصحيحة للمستودع
                 val pathJobs = PortalConfig.payloads.map { path ->
                     async {
                         val fullPath = if (checkedUrl.endsWith("/")) "$checkedUrl${path.removePrefix("/")}" else "$checkedUrl$path"
-                        if (repository.checkPortalEndpoint(fullPath)) {
+                        if (repository.checkPortal(fullPath)) { // استخدام الدالة checkPortal الصحيحة
                             synchronized(validPortals) { validPortals.add(fullPath) }
                         }
                     }
@@ -51,7 +50,7 @@ class ScannerViewModel(private val repository: ScannerRepository) : ViewModel() 
 
                 if (validPortals.isEmpty()) {
                     withContext(Dispatchers.Main) {
-                        scanLogs.add("❌ Error: No active Stalker portals found on this server.")
+                        scanLogs.add("❌ Error: No active Stalker portals found.")
                         isScanning.value = false
                         scanProgress("Scan failed.")
                     }
@@ -62,12 +61,8 @@ class ScannerViewModel(private val repository: ScannerRepository) : ViewModel() 
                     scanLogs.add("🟢 Found ${validPortals.size} active endpoints! Launching 15 Multi-Bots...")
                 }
 
-                // 2. Multi-threaded MAC scanning loop
                 val counter = AtomicInteger(0)
-                
-                // Creating a pool of 15 concurrent workers
                 val workersCount = 15
-                val channel = MacGenerator.generateRandomMacs(totalToScan) // Assume helper yields iterable or we loop
 
                 val jobs = List(workersCount) {
                     launch {
@@ -75,33 +70,34 @@ class ScannerViewModel(private val repository: ScannerRepository) : ViewModel() 
                             val currentProgress = counter.incrementAndGet()
                             if (currentProgress > totalToScan) break
 
-                            val targetMac = MacGenerator.generateSingleMac()
+                            // توليد الماك باستخدام الدالة الكلاسيكية الصحيحة المتاحة في ملف Generator
+                            val targetMac = MacGenerator.generateMac() 
                             val randomUserAgent = PortalConfig.userAgents.random()
                             
-                            // Log every 20 attempts to avoid UI lag
                             if (currentProgress % 20 == 0 || currentProgress == 1) {
                                 withContext(Dispatchers.Main) {
                                     scanProgress("Scanned $currentProgress / $totalToScan MACs")
                                 }
                             }
 
-                            // Try hitting all discovered valid paths
                             for (portal in validPortals) {
-                                val result = repository.scanMacAddress(portal, targetMac, randomUserAgent)
-                                if (result != null && result.isValid) {
+                                // استدعاء الدالة المتوافقة مع بارامترات المستودع
+                                val result = repository.scanMac(portal, targetMac, randomUserAgent)
+                                if (result != null && result.isSuccess) { 
                                     withContext(Dispatchers.Main) {
                                         val newHit = MacHit(
                                             macAddress = targetMac,
                                             expiryDate = result.expiryDate ?: "Unlimited",
                                             maxConnections = result.maxConnections ?: "1",
-                                            liveCount = result.liveCount ?: 0,
-                                            vodCount = result.vodCount ?: 0,
-                                            seriesCount = result.seriesCount ?: 0
+                                            // تحويل الأرقام إلى نصوص لتطابق خصائص كرت العرض
+                                            liveCount = (result.liveChannels ?: 0).toString(),
+                                            vodCount = (result.vodMovies ?: 0).toString(),
+                                            seriesCount = (result.tvSeries ?: 0).toString()
                                         )
                                         activeHits.add(newHit)
                                         scanLogs.add(0, "🔥 [HIT] $targetMac | Exp: ${newHit.expiryDate}")
                                     }
-                                    break // Stop checking other paths if one works
+                                    break 
                                 }
                             }
                         }
