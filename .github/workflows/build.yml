@@ -2,7 +2,7 @@ name: Android Build APK
 
 on:
   push:
-    branches: [ "main", "master" ] # سيعمل على كلا الفرعين لضمان التشغيل
+    branches: [ "main", "master" ]
   pull_request:
     branches: [ "main", "master" ]
 
@@ -22,19 +22,19 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    # 3. خطوة سحرية: توليد ملفات الـ Gradle Wrapper المفقودة تلقائياً داخل السيرفر
+    # 3. تحميل وتوليد الـ Gradle Wrapper تلقائياً داخل السيرفر
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v3
       with:
-        gradle-version: 8.5 # سيقوم بتحميل وتوليد ملف gradlew متوافق تلقائياً
+        gradle-version: 8.5
 
-    # 4. بناء التطبيق وتوليد ملف الـ APK باستخدام الأمر المباشر بعد توليد البيئة
+    # 4. بناء التطبيق وتوليد ملف الـ APK
     - name: Build Debug APK
       run: gradle assembleDebug
 
-    # 5. رفع الملف الناتج (APK) لتحميله
+    # 5. التعديل هنا: رفع الملف باستخدام خاصية البحث الذكي عن أي ملف ينتهي بـ .apk
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
       with:
         name: FoxyMacScan-Debug-APK
-        path: app/build/outputs/apk/debug/app-debug.apk
+        path: app/build/outputs/apk/**/*.apk
