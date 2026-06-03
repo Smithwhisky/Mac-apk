@@ -4,9 +4,9 @@ name: Android Build APK
 # متى يتم تشغيل هذا السكربت؟ (عند عمل Push أو رفع كود على فرع main)
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "master" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "master" ]
 
 jobs:
   build:
