@@ -37,8 +37,8 @@ fun HitCardItem(hit: MacHit) {
             Text(text = "تاريخ الانتهاء: ${hit.expiryDate}", color = Color.White, fontSize = 14.sp)
             Text(text = "الاتصالات المسموحة: ${hit.maxConnections}", color = Color.LightGray, fontSize = 13.sp)
             
-            // خط فاصل داخلي رفيع
-            HorizontalDivider(color = Color.DarkGray, modifier = Modifier.padding(vertical = 8.dp))
+            // الحل هنا: استبدال HorizontalDivider بـ Divider المتوافق 100% مع إصدار المكتبة الحالية
+            Divider(color = Color.DarkGray, modifier = Modifier.padding(vertical = 8.dp))
             
             // سطر العدادات الخاصة بمحتوى السيرفر المستخرج بأمان
             Row(
