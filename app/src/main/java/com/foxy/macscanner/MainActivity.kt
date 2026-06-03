@@ -12,6 +12,7 @@ import com.foxy.macscanner.data.remote.StalkerApiService
 import com.foxy.macscanner.data.repository.ScannerRepository
 import com.foxy.macscanner.ui.screen.MainScreen
 import com.foxy.macscanner.ui.viewmodel.ScannerViewModel
+import com.foxy.macscanner.ui.theme.MacScannerTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
