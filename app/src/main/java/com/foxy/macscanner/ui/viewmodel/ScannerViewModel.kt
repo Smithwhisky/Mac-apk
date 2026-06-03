@@ -53,14 +53,14 @@ class ScannerViewModel(private val repository: ScannerRepository) : ViewModel() 
                         val fullPath = if (checkedUrl.endsWith("/")) "$checkedUrl${path.removePrefix("/")}" else "$checkedUrl$path"
                         val request = Request.Builder().url(fullPath).get().build()
                         var isActive = false
-                        var response: Response? = null
+                        
+                        // جعل الـ Response محلياً بالكامل وثابتاً لحل خطأ الـ Smart Cast
                         try {
-                            response = client.newCall(request).execute()
+                            val response: Response = client.newCall(request).execute()
                             isActive = response.isSuccessful
+                            response.close()
                         } catch (e: Exception) {
                             isActive = false
-                        } finally {
-                            response?.close()
                         }
                         
                         if (isActive) {
@@ -118,9 +118,9 @@ class ScannerViewModel(private val repository: ScannerRepository) : ViewModel() 
                                     .header("Cookie", "mac=$targetMac")
                                     .build()
 
-                                var response: Response? = null
                                 try {
-                                    response = client.newCall(request).execute()
+                                    // هنا أيضاً: الـ response محلي وثابت لضمان قراءة الـ body الآمنة والـ Smart Cast
+                                    val response: Response = client.newCall(request).execute()
                                     if (response.isSuccessful) {
                                         val responseBody = response.body?.string() ?: ""
                                         if (responseBody.contains("token") && !responseBody.contains("denied")) {
@@ -151,13 +151,11 @@ class ScannerViewModel(private val repository: ScannerRepository) : ViewModel() 
                                             foundHitInPortals = true
                                         }
                                     }
+                                    response.close()
                                 } catch (e: Exception) {
-                                    // تخطي أخطاء الشبكة الفردية لقناة الاتصال الحالية
-                                } finally {
-                                    response?.close()
+                                    // تخطي أخطاء الشبكة الفردية
                                 }
 
-                                // الخروج الآمن من حلقة الـ portals دون تعارض الـ inline lambdas
                                 if (foundHitInPortals) {
                                     break
                                 }
