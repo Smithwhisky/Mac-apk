@@ -22,10 +22,10 @@ import com.foxy.macscanner.ui.viewmodel.ScannerViewModel
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(viewModel: ScannerViewModel) {
-    val backgroundColor = Color(0xFF0D0E11) // Deep cyber black
-    val cardColor = Color(0xFF161920)       // Gunmetal dark gray
-    val primaryColor = Color(0xFF00FF66)    // Neon terminal green
-    val secondaryColor = Color(0xFFFF3366)  // Cyberpunk pink/red
+    val backgroundColor = Color(0xFF0D0E11) 
+    val cardColor = Color(0xFF161920)       
+    val primaryColor = Color(0xFF00FF66)    
+    val secondaryColor = Color(0xFFFF3366)  
 
     var selectedTab by remember { mutableStateOf(0) }
 
@@ -35,7 +35,6 @@ fun MainScreen(viewModel: ScannerViewModel) {
             .background(backgroundColor)
             .padding(16.dp)
     ) {
-        // App Header Matrix Style
         Row(
             modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -65,17 +64,15 @@ fun MainScreen(viewModel: ScannerViewModel) {
             }
         }
 
-        // Control Panel Card
         Card(
             colors = CardDefaults.cardColors(containerColor = cardColor),
-            shape = RoundedCornerShape(4.dp), // Sharper professional corners
+            shape = RoundedCornerShape(4.dp), 
             modifier = Modifier
                 .fillMaxWidth()
                 .border(1.dp, Color.DarkGray, RoundedCornerShape(4.dp))
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
                 
-                // Target Portal Input
                 OutlinedTextField(
                     value = viewModel.serverUrl.value,
                     onValueChange = { viewModel.serverUrl.value = it },
@@ -96,7 +93,6 @@ fun MainScreen(viewModel: ScannerViewModel) {
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Request Count Input
                 OutlinedTextField(
                     value = viewModel.botCountInput.value,
                     onValueChange = { viewModel.botCountInput.value = it },
@@ -118,7 +114,6 @@ fun MainScreen(viewModel: ScannerViewModel) {
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Trigger Engine Button
                 if (!viewModel.isScanning.value) {
                     Button(
                         onClick = { viewModel.startScanningProcess() },
@@ -153,7 +148,6 @@ fun MainScreen(viewModel: ScannerViewModel) {
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Live Console Progress Bar
         Text(
             text = "STATUS // ${viewModel.currentProgressMessage.value.uppercase()}",
             color = Color.LightGray,
@@ -164,14 +158,13 @@ fun MainScreen(viewModel: ScannerViewModel) {
         if (viewModel.isScanning.value) {
             LinearProgressIndicator(
                 color = primaryColor,
-                trackColor = Color(022, 26, 35),
+                trackColor = Color(0xFF161920), // تم إصلاح الخطأ المطبعي هنا بنجاح
                 modifier = Modifier.fillMaxWidth().height(2.dp)
             )
         }
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // Matrix Console Navigation Tabs
         TabRow(
             selectedTabIndex = selectedTab,
             containerColor = cardColor,
@@ -206,7 +199,6 @@ fun MainScreen(viewModel: ScannerViewModel) {
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Dynamic Logs Terminal Monitor
         Box(
             modifier = Modifier
                 .fillMaxWidth()
