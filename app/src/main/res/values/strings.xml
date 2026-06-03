@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Mac Scanner</string>
+    <string name="start_scan">Start Scanning</string>
+    <string name="stop_scan">Stop Scanning</string>
+</resources>
